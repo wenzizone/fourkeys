@@ -1,0 +1,212 @@
+version: '3.8'
+
+services:
+  # ====================================================================
+  # ClickHouse 数据库（OLAP 列式存储）
+  # ====================================================================
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    ports:
+      - "8123:8123"      # HTTP 接口
+      - "9000:9000"      # 原生接口
+      - "9009:9009"      # 分布式集群
+    environment:
+      CLICKHOUSE_DB: fourkeys
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./clickhouse_schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - fourkeys
+
+  # ====================================================================
+  # Kafka（消息队列）
+  # ====================================================================
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+      - zookeeper_logs:/var/lib/zookeeper/log
+    networks:
+      - fourkeys
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions.sh", "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - fourkeys
+
+  # ====================================================================
+  # Parser Services (保持原有 Flask 代码，修改后端存储)
+  # ====================================================================
+  github-parser:
+    build:
+      context: ./github-parser
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: 8080
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: 9000
+      CLICKHOUSE_DB: fourkeys
+      KAFKA_BROKER: kafka:29092
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - fourkeys
+
+  argocd-parser:
+    build:
+      context: ./argocd-parser
+      dockerfile: Dockerfile
+    ports:
+      - "8081:8080"
+    environment:
+      PORT: 8080
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: 9000
+      CLICKHOUSE_DB: fourkeys
+      KAFKA_BROKER: kafka:29092
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - fourkeys
+
+  cloud-build-parser:
+    build:
+      context: ./cloud-build-parser
+      dockerfile: Dockerfile
+    ports:
+      - "8082:8080"
+    environment:
+      PORT: 8080
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: 9000
+      CLICKHOUSE_DB: fourkeys
+      KAFKA_BROKER: kafka:29092
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - fourkeys
+
+  circleci-parser:
+    build:
+      context: ./circleci-parser
+      dockerfile: Dockerfile
+    ports:
+      - "8083:8080"
+    environment:
+      PORT: 8080
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: 9000
+      CLICKHOUSE_DB: fourkeys
+      KAFKA_BROKER: kafka:29092
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - fourkeys
+
+  # ====================================================================
+  # Grafana（仪表板）
+  # ====================================================================
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin123
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+      GF_INSTALL_PLUGINS: grafana-piechart-panel
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - clickhouse
+    networks:
+      - fourkeys
+
+  # ====================================================================
+  # pgAdmin（可选：数据浏览和调试）
+  # ====================================================================
+  clickhouse-client:
+    image: clickhouse/clickhouse-client:latest
+    entrypoint: sleep
+    command: infinity
+    environment:
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: 9000
+    depends_on:
+      - clickhouse
+    networks:
+      - fourkeys
+
+networks:
+  fourkeys:
+    driver: bridge
+
+volumes:
+  clickhouse_data:
+    driver: local
+  zookeeper_data:
+    driver: local
+  zookeeper_logs:
+    driver: local
+  kafka_data:
+    driver: local
+  grafana_data:
+    driver: local
