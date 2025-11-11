@@ -3,14 +3,13 @@
 ## 包含的文件
 
 ### Schema 定义
-- `schema.sql` - 完整的 ClickHouse 数据库结构定义
-  - 5 个表 (events, deployments, changes, incidents, services)
-  - 9 个视图用于数据聚合和查询
-  - 自动分区和 TTL 配置
-  - 数据跳过索引优化
+- `schema.sql` - 初始化基础库和 `events_raw` 表。
+- `changes.sql` - 创建 `changes` 明细表及 `mv_changes` 视图（GitHub push / PR 自动入表）。
+- `deployments.sql` - 创建 `deployments` 明细表及 `mv_deployments` 视图（CircleCI 与 ArgoCD 部署事件自动入表）。
+- `incidents.sql` - 创建 `incidents` 表及 `mv_incidents` 视图（PagerDuty 等事件自动入表）。
+- `services.sql` - 基础服务元数据表，可手动维护或后续扩展脚本同步。
 
-### 迁移脚本
-- `migration/` - 数据库版本控制和升级脚本
+当前仓库尚未定义 incidents / services 等其它表，README 先前提到的 “5 表 9 视图” 仅为模板描述，后续可按需补充。
 
 ## 使用方式
 

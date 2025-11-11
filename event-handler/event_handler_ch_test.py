@@ -12,12 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import hmac
 from hashlib import sha1
+from unittest import mock
 
 import event_handler
 
-import mock
 import pytest
 
 
@@ -40,25 +41,26 @@ def test_missing_signature(client):
     assert r.status_code == 403
 
 
-@mock.patch("sources.get_secret", mock.MagicMock(return_value=b"foo"))
+@mock.patch.dict(os.environ, {"GITHUB_SECRET": "foo"}, clear=False)
 def test_unverified_signature(client):
     r = client.post(
-            "/",
-            headers={
-                "User-Agent": "GitHub-Hookshot",
-                "X-Hub-Signature": "foobar",
-            },
-        )
+        "/",
+        headers={
+            "User-Agent": "GitHub-Hookshot",
+            "X-Hub-Signature": "foobar",
+        },
+    )
 
     assert r.status_code == 403
 
 
-@mock.patch("sources.get_secret", mock.MagicMock(return_value=b"foo"))
 @mock.patch(
-    "event_handler.publish_to_pubsub", mock.MagicMock(return_value=True)
+    "event_handler.publish_to_kafka", mock.MagicMock(return_value=True)
 )
+@mock.patch.dict(os.environ, {"GITHUB_SECRET": "foo"}, clear=False)
 def test_verified_signature(client):
-    signature = "sha1=" + hmac.new(b"foo", b"Hello", sha1).hexdigest()
+    secret = os.environ["GITHUB_SECRET"].encode("utf-8")
+    signature = "sha1=" + hmac.new(secret, b"Hello", sha1).hexdigest()
     r = client.post(
         "/",
         data="Hello",
@@ -67,10 +69,10 @@ def test_verified_signature(client):
     assert r.status_code == 204
 
 
-@mock.patch("sources.get_secret", mock.MagicMock(return_value=b"foo"))
-def test_data_sent_to_pubsub(client):
-    signature = "sha1=" + hmac.new(b"foo", b"Hello", sha1).hexdigest()
-    event_handler.publish_to_pubsub = mock.MagicMock(return_value=True)
+@mock.patch.dict(os.environ, {"GITHUB_SECRET": "foo"}, clear=False)
+def test_data_sent_to_kafka(client):
+    secret = os.environ["GITHUB_SECRET"].encode("utf-8")
+    signature = "sha1=" + hmac.new(secret, b"Hello", sha1).hexdigest()
     headers = {
         "User-Agent": "GitHub-Hookshot",
         "Host": "localhost",
@@ -78,9 +80,9 @@ def test_data_sent_to_pubsub(client):
         "X-Hub-Signature": signature,
     }
 
-    r = client.post("/", data="Hello", headers=headers)
-
-    event_handler.publish_to_pubsub.assert_called_with(
-        "github", b"Hello", headers
-    )
-    assert r.status_code == 204
+    with mock.patch.object(
+        event_handler, "publish_to_kafka", return_value=True
+    ) as mocked_publish:
+        r = client.post("/", data="Hello", headers=headers)
+        mocked_publish.assert_called_with("github", b"Hello", headers)
+        assert r.status_code == 204
