@@ -31,20 +31,28 @@ AS
 SELECT
     event_type,
     coalesce(JSONExtractString(metadata, 'id'), msg_id) AS deployment_id,
-    JSONExtractString(metadata, 'workflow', 'id') AS workflow_id,
+    coalesce(
+        JSONExtractString(metadata, 'workflow', 'id'),
+        JSONExtractString(metadata, 'deployment', 'id')
+    ) AS workflow_id,
     coalesce(
         JSONExtractString(metadata, 'workflow', 'project_slug'),
-        JSONExtractString(metadata, 'application', 'project')
+        JSONExtractString(metadata, 'application', 'project'),
+        JSONExtractString(metadata, 'repository', 'full_name'),
+        JSONExtractString(metadata, 'repository', 'name')
     ) AS project_slug,
     JSONExtractString(metadata, 'pipeline_id') AS pipeline_id,
     coalesce(
         JSONExtractString(metadata, 'workflow', 'name'),
-        JSONExtractString(metadata, 'application', 'name')
+        JSONExtractString(metadata, 'application', 'name'),
+        JSONExtractString(metadata, 'deployment', 'task'),
+        JSONExtractString(metadata, 'deployment', 'environment')
     ) AS workflow_name,
     coalesce(
         JSONExtractString(metadata, 'workflow', 'status'),
         JSONExtractString(metadata, 'application', 'health', 'status'),
-        JSONExtractString(metadata, 'application', 'sync', 'status')
+        JSONExtractString(metadata, 'application', 'sync', 'status'),
+        JSONExtractString(metadata, 'deployment_status', 'state')
     ) AS workflow_status,
     JSONExtractString(metadata, 'job', 'id') AS job_id,
     JSONExtractString(metadata, 'job', 'name') AS job_name,
@@ -55,7 +63,8 @@ SELECT
     ) AS duration_seconds,
     coalesce(
         JSONExtractString(metadata, 'workflow', 'url'),
-        JSONExtractString(metadata, 'application', 'sync', 'comparedTo', 'source', 'repoURL')
+        JSONExtractString(metadata, 'application', 'sync', 'comparedTo', 'source', 'repoURL'),
+        JSONExtractString(metadata, 'deployment', 'url')
     ) AS url,
     time_created,
     metadata AS raw_metadata,
@@ -76,4 +85,9 @@ WHERE (
    OR (
         source = 'argocd'
         AND event_type = 'deployment'
+    )
+   OR (
+        source LIKE 'github%'
+        AND event_type = 'deployment_status'
+        AND JSONExtractString(metadata, 'deployment_status', 'state') = 'success'
     );

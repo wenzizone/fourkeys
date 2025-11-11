@@ -25,6 +25,6 @@ class ArgoCDParser(BaseParser):
             "time_created": parse_timestamp(metadata.get("time")),
             "signature": signature,
             "msg_id": msg_id,
-            "source": "argocd",
+            "source": "argocdmock" if headers.get("Mock") else "argocd",
         }
         return event

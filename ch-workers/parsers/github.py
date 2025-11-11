@@ -1,4 +1,5 @@
 import json
+import json
 from typing import Any, Dict, Tuple
 
 from common import parse_timestamp
@@ -47,7 +48,7 @@ class GitHubParser(BaseParser):
             "time_created": parse_timestamp(time_created),
             "signature": signature,
             "msg_id": msg_id,
-            "source": "github",
+            "source": "githubmock" if headers.get("Mock") else "github",
         }
         return event
 

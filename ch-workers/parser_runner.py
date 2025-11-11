@@ -1,3 +1,4 @@
+import argparse
 import logging
 import os
 import signal
@@ -16,10 +17,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def resolve_parser() -> BaseParser:
-    parser_name = os.getenv("PARSER")
+def resolve_parser(parser_name: str | None = None) -> BaseParser:
+    parser_name = parser_name or os.getenv("PARSER")
     if not parser_name:
-        raise RuntimeError("PARSER environment variable must be set (github/circleci/argocd).")
+        raise RuntimeError(
+            "Parser not specified. Provide --parser argument or set PARSER environment variable."
+        )
     parser_cls = PARSERS.get(parser_name.lower())
     if not parser_cls:
         raise RuntimeError(f"Unsupported parser '{parser_name}'. Available: {', '.join(PARSERS.keys())}")
@@ -66,8 +69,20 @@ def consume(parser: BaseParser) -> None:
         logger.info("Kafka consumer closed")
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run Four Keys ClickHouse parser worker.")
+    parser.add_argument(
+        "-p",
+        "--parser",
+        choices=sorted(PARSERS.keys()),
+        help="Parser to run (overrides PARSER env var).",
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
-    parser = resolve_parser()
+    args = parse_args()
+    parser = resolve_parser(args.parser)
     consume(parser)
 
 
